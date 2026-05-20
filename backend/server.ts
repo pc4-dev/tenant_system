@@ -4,44 +4,40 @@ import { v2 as cloudinary } from 'cloudinary';
 import { createApp } from './src/app';
 import { isUsingMockData } from './src/mockData';
 import { Company } from './models/Company';
-import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import express from 'express';
 
+// ── ES Module __dirname fix ──
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
 
 dotenv.config();
-const app = express();
 
-// ── Existing code ke neeche add karo ──
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../dist', 'index.html'));
-  });
-}
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
-// Cloudinary Configuration
+// ── Cloudinary ──
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
+    api_key:    process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
   });
   console.log('✅ Cloudinary Configured');
 }
 
-// MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI?.trim();
-
+// ── Seed Companies ──
 async function seedCompanies() {
   if (isUsingMockData.value) return;
   try {
     const count = await Company.countDocuments();
     if (count === 0) {
       const companies = [
-        'Swastik Grah Nirman Company', 'GLR Real Estate Pvt Ltd.', 'Neoteric Properties Pvt Ltd.',
-        'Gravity Infrastructure Pvt. Ltd.', 'Reyan Infrastructure Company', 'Rahul Gupta',
-        'Ramjidas Gupta', 'Heaven Heights Pvt Ltd', 'Neoteric Housing India LLP',
+        'Swastik Grah Nirman Company', 'GLR Real Estate Pvt Ltd.',
+        'Neoteric Properties Pvt Ltd.', 'Gravity Infrastructure Pvt. Ltd.',
+        'Reyan Infrastructure Company', 'Rahul Gupta', 'Ramjidas Gupta',
+        'Heaven Heights Pvt Ltd', 'Neoteric Housing India LLP',
         'Neoteric Recreational and Hospitality Service Pvt Ltd.'
       ];
       await Company.insertMany(companies.map(name => ({ companyName: name, status: true })));
@@ -52,7 +48,10 @@ async function seedCompanies() {
   }
 }
 
+// ── Start Server ──
 async function startServer() {
+  const MONGODB_URI = process.env.MONGODB_URI?.trim();
+
   if (MONGODB_URI) {
     try {
       await mongoose.connect(MONGODB_URI, {
@@ -71,8 +70,17 @@ async function startServer() {
     isUsingMockData.value = true;
   }
 
+  // ── Create App ──
   const app = await createApp();
-  
+
+  // ── Production: Serve Frontend ──
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, '../dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(__dirname, '../dist', 'index.html'));
+    });
+  }
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
