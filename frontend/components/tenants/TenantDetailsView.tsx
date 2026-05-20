@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Plus, Eye, Edit2, Trash2, Download, History, MessageSquare,
-  Receipt, FileText, TrendingUp, ArrowUpRight, ArrowDownRight,
-  User as UserIcon, Phone, Mail, MapPin, IndianRupee, Building,
-  Calendar, Clock, ShieldCheck, FileCheck, CheckCircle2, PieChart,
-  ChevronRight, MoreHorizontal, Filter, Loader2
+  Receipt, FileText, TrendingUp, User as UserIcon, Phone, Mail,
+  MapPin, IndianRupee, Building, Calendar, Clock, ShieldCheck,
+  FileCheck, CheckCircle2, PieChart, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import axios from 'axios';
@@ -12,733 +11,529 @@ import { toast } from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell
-} from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { type Tenant, type Company, type Invoice, type LedgerEntry, type LedgerSummary } from '../../src/types';
 import { exportToExcel } from '../../src/lib/exportUtils';
-import {
-  StatusBadge, TypeBadge, InvoiceStatusBadge, InfoField, SummaryItem,
-  TimelineItem, TimelineItemLarge, ConfigBlock, ProfileItem, SummaryCard,
-  TabButton, TabsNavItem, StatCard, DossierItem
-} from './TenantPrimitives';
+import { StatusBadge, TypeBadge, InvoiceStatusBadge, SummaryItem, TimelineItemLarge, ConfigBlock } from './TenantPrimitives';
 import { InvoiceFormModal, ViewInvoiceModal } from './InvoiceModals';
 import { OpeningAdjustmentModal, PaymentEntryModal } from './PaymentModals';
 
+// ── Shared card style ─────────────────────────────────────────────────────────
+const SC: React.CSSProperties = {
+  background: '#fff', borderRadius: 16,
+  border: '1px solid #f0f2f5', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+};
 
-export function TenantDetailsView({ tenant, onClose, companies, allTenants }: { tenant: Tenant, onClose: () => void, companies: Company[], allTenants: Tenant[] }) {
-  const [details, setDetails] = useState<any>(null);
-  const [ledgerData, setLedgerData] = useState<{ ledger: LedgerEntry[], summary: LedgerSummary } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [ledgerLoading, setLedgerLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [showOpeningAdjustment, setShowOpeningAdjustment] = useState(false);
+const TABS = [
+  { id:'overview',  label:'Overview',  icon: PieChart  },
+  { id:'ledger',    label:'Ledger',    icon: FileText  },
+  { id:'invoices',  label:'Billing',   icon: Receipt   },
+  { id:'lease',     label:'Lease',     icon: Calendar  },
+  { id:'documents', label:'Documents', icon: FileCheck },
+];
 
-  // Internal Invoice states
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
-  const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
-  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
-  const [exportingExcel, setExportingExcel] = useState(false);
-  const [exportingPDF, setExportingPDF] = useState(false);
+// ─────────────────────────────────────────────────────────────────────────────
+export function TenantDetailsView({ tenant, onClose, companies, allTenants }: {
+  tenant: Tenant; onClose: () => void; companies: Company[]; allTenants: Tenant[];
+}) {
+  const [details,            setDetails]            = useState<any>(null);
+  const [ledgerData,         setLedgerData]         = useState<{ ledger: LedgerEntry[], summary: LedgerSummary } | null>(null);
+  const [loading,            setLoading]            = useState(true);
+  const [ledgerLoading,      setLedgerLoading]      = useState(true);
+  const [activeTab,          setActiveTab]          = useState('overview');
+  const [showOpeningAdj,     setShowOpeningAdj]     = useState(false);
+  const [selectedInvoice,    setSelectedInvoice]    = useState<Invoice | null>(null);
+  const [editingInvoice,     setEditingInvoice]     = useState<Invoice | null>(null);
+  const [deletingInvoice,    setDeletingInvoice]    = useState<Invoice | null>(null);
+  const [payingInvoice,      setPayingInvoice]      = useState<Invoice | null>(null);
+  const [exportingExcel,     setExportingExcel]     = useState(false);
+  const [exportingPDF,       setExportingPDF]       = useState(false);
   const ledgerRef = useRef<HTMLDivElement>(null);
 
-  const lockInExpiryDate = tenant.leaseStart ? (() => {
+  const lockInExpiry = tenant.leaseStart ? (() => {
     const d = new Date(tenant.leaseStart);
     d.setMonth(d.getMonth() + (tenant.lockIn || 0));
     return d.toISOString().split('T')[0];
   })() : '';
 
-  const handleExportLedgerExcel = () => {
-    setExportingExcel(true);
-    try {
-      if (!ledgerData) {
-        toast.error('Ledger data not loaded');
-        return;
-      }
-
-      const dataToExport = ledgerData.ledger.map((entry) => {
-        return {
-          'Date': new Date(entry.date).toLocaleDateString('en-GB'),
-          'Particular': entry.particular,
-          'Type': entry.type.replace('_', ' '),
-          'Ref No.': entry.refNo || '-',
-          'Debit': entry.debit,
-          'Credit': entry.credit,
-          'TDS': entry.tds,
-          'Balance': entry.runningBalance
-        };
-      });
-
-      // Add summary row
-      dataToExport.push({
-        'Date': 'TOTAL',
-        'Particular': '',
-        'Type': '',
-        'Ref No.': '',
-        'Debit': ledgerData.summary.totalInvoiced,
-        'Credit': ledgerData.summary.totalReceived,
-        'TDS': ledgerData.summary.totalTds,
-        'Balance': ledgerData.summary.closingBalance
-      });
-      
-      exportToExcel(dataToExport, `Ledger_${tenant.name}_${new Date().toISOString().split('T')[0]}`, 'Ledger');
-      toast.success('Ledger exported to Excel');
-    } catch (error) {
-      toast.error('Excel Export Failed');
-    } finally {
-      setExportingExcel(false);
-    }
-  };
-
-  const handleExportLedgerPDF = async () => {
-    if (!ledgerRef.current) return;
-    setExportingPDF(true);
-    try {
-      const canvas = await html2canvas(ledgerRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        onclone: (clonedDoc) => {
-          clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach(l => l.remove());
-          const style = clonedDoc.createElement('style');
-          style.innerHTML = `
-             * { color: #000000 !important; color-scheme: light !important; }
-             .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl { box-shadow: none !important; }
-             .backdrop-blur-md, .backdrop-blur-sm { backdrop-filter: none !important; }
-             .bg-primary { background-color: #FB923C !important; color: white !important; }
-             th { background-color: #f8fafc !important; border-bottom: 2px solid #e2e8f0 !important; }
-          `;
-          clonedDoc.head.appendChild(style);
-          const all = clonedDoc.querySelectorAll('*');
-          all.forEach((el: any) => {
-            const styles = el.getAttribute('style') || '';
-            if (styles.includes('okl')) {
-               el.setAttribute('style', styles.replace(/okl(ch|ab)\s*\([^)]+\)/g, '#000000'));
-            }
-          });
-        }
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth - 20;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
-      pdf.save(`Ledger_${tenant.name}.pdf`);
-      toast.success('Ledger exported to PDF');
-    } catch (error) {
-      toast.error('PDF Export Failed');
-    } finally {
-      setExportingPDF(false);
-    }
-  };
+  useEffect(() => { fetchDetails(); fetchLedger(); }, [tenant.id]);
 
   const fetchDetails = () => {
     setLoading(true);
     axios.get(`/api/tenants/${tenant.id}/details`)
-      .then(res => {
-        setDetails(res.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Error fetching tenant details:', err);
-        setLoading(false);
-      });
+      .then(r => { setDetails(r.data); setLoading(false); })
+      .catch(() => setLoading(false));
   };
 
   const fetchLedger = () => {
     setLedgerLoading(true);
     axios.get(`/api/ledger/tenant/${tenant.id}`)
-      .then(res => {
-        setLedgerData(res.data);
-        setLedgerLoading(false);
-      })
-      .catch(err => {
-        console.error('Error fetching ledger:', err);
-        setLedgerLoading(false);
-      });
+      .then(r => { setLedgerData(r.data); setLedgerLoading(false); })
+      .catch(() => setLedgerLoading(false));
+  };
+
+  const handleDeleteInvoice = async (id: string) => {
+    try { await axios.delete(`/api/invoices/${id}`); setDeletingInvoice(null); fetchDetails(); }
+    catch { alert('Failed to delete invoice'); }
+  };
+
+  const handleExportExcel = () => {
+    if (!ledgerData) return toast.error('Ledger not loaded');
+    setExportingExcel(true);
+    try {
+      exportToExcel(
+        [...ledgerData.ledger.map(e => ({ Date: new Date(e.date).toLocaleDateString('en-GB'), Particular: e.particular, Type: e.type, 'Ref No': e.refNo||'-', Debit: e.debit, Credit: e.credit, TDS: e.tds, Balance: e.runningBalance })),
+         { Date:'TOTAL', Particular:'', Type:'', 'Ref No':'', Debit: ledgerData.summary.totalInvoiced, Credit: ledgerData.summary.totalReceived, TDS: ledgerData.summary.totalTds, Balance: ledgerData.summary.closingBalance }],
+        `Ledger_${tenant.name}_${new Date().toISOString().split('T')[0]}`, 'Ledger'
+      );
+      toast.success('Exported to Excel');
+    } catch { toast.error('Export failed'); }
+    finally { setExportingExcel(false); }
+  };
+
+  const handleExportPDF = async () => {
+    if (!ledgerRef.current) return;
+    setExportingPDF(true);
+    try {
+      const canvas = await html2canvas(ledgerRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const w = pdf.internal.pageSize.getWidth() - 20;
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, w, (canvas.height * w) / canvas.width);
+      pdf.save(`Ledger_${tenant.name}.pdf`);
+      toast.success('PDF exported');
+    } catch { toast.error('PDF failed'); }
+    finally { setExportingPDF(false); }
   };
 
   const company = companies.find(c => c.companyName === tenant.company);
-
-  useEffect(() => {
-    fetchDetails();
-    fetchLedger();
-  }, [tenant.id]);
-
-  const handleDeleteInvoice = async (id: string) => {
-    try {
-      await axios.delete(`/api/invoices/${id}`);
-      setDeletingInvoice(null);
-      fetchDetails(); // Refresh list after delete
-    } catch (err) {
-      console.error(err);
-      alert('Failed to delete invoice');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 bg-white rounded-3xl border border-slate-100 shadow-sm">
-        <Loader2 className="animate-spin text-primary mb-4" size={48} />
-        <h3 className="text-xl font-black text-slate-800">Compiling Tenant Dossier...</h3>
-        <p className="text-sm font-medium text-slate-400 mt-2">Retrieving all financial and legal records.</p>
-      </div>
-    );
-  }
-
   const { invoices = [], paymentSummary = {}, analytics = {} } = details || {};
 
+  // ── Loading ────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'60vh', gap:12 }}>
+      <Loader2 size={36} color="#f97316" style={{ animation:'spin 1s linear infinite' }}/>
+      <p style={{ fontSize:12, fontWeight:600, color:'#9ba8b5', textTransform:'uppercase', letterSpacing:'0.1em' }}>Loading tenant data...</p>
+    </div>
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 0 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      exit={{ opacity: 0, y: 0 }}
-      className="max-w-7xl mx-auto w-full px-4 md:px-6 lg:px-8 pt-0 space-y-8 pb-10"
-    >
-      {/* Workspace Header - Flush modern header */}
-      <div className="bg-white border-b border-slate-200 -mx-4 md:-mx-6 lg:-mx-8 -mt-0 pt-8 px-8 pb-0 relative overflow-hidden flex flex-col gap-6">
-        {/* Abstract background element */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-        
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-            <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-[28px] flex items-center justify-center font-black text-3xl text-primary shadow-inner shrink-0 ring-4 ring-white">
-              {tenant.name.charAt(0)}
+    <div style={{ background:'#F5F7FA', minHeight:'100%' }}>
+
+      {/* ── STICKY HEADER (below app topbar at 58px) ── */}
+      <div style={{
+        position: 'sticky',
+        top: 0,          /* App topbar height */
+        zIndex: 30,
+        background: '#fff',
+        borderBottom: '2px solid #f0f2f5',
+        borderLeft: '4px solid #f97316',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+      }}>
+        <div style={{ maxWidth:1280, margin:'0 auto', padding:'0 24px' }}>
+
+          {/* Tenant info + buttons */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:12, paddingBottom:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:'rgba(249,115,22,0.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:900, color:'#f97316', border:'2px solid rgba(249,115,22,0.15)', flexShrink:0 }}>
+                {tenant.name.charAt(0)}
+              </div>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <h2 style={{ fontSize:15, fontWeight:800, color:'#1a1a2e', margin:0 }}>{tenant.name}</h2>
+                  <StatusBadge status={tenant.agreementStatus}/>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3, flexWrap:'wrap' }}>
+                  {[
+                    { icon:<Building size={9} color="#f97316"/>, val:tenant.company },
+                    { icon:<Clock    size={9} color="#f97316"/>, val:tenant.code    },
+                  ].map((b,i) => (
+                    <span key={i} style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:600, color:'#9ba8b5', background:'#f8f9fb', padding:'2px 7px', borderRadius:5, border:'1px solid #f0f2f5' }}>
+                      {b.icon} {b.val}
+                    </span>
+                  ))}
+                  {tenant.gstNo && (
+                    <span style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:600, color:'#059669', background:'#f0fdf4', padding:'2px 7px', borderRadius:5, border:'1px solid #bbf7d0' }}>
+                      <FileText size={9}/> {tenant.gstNo}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="text-center md:text-left space-y-2">
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
-                <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">{tenant.name}</h2>
-                <StatusBadge status={tenant.agreementStatus} />
-              </div>
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-x-4 gap-y-2">
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase bg-slate-50 px-2 py-1 rounded-full border border-slate-100">
-                  <Building size={12} className="text-primary" /> {tenant.company}
-                </span>
-                <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase bg-slate-50 px-2 py-1 rounded-full border border-slate-100">
-                  <Clock size={12} className="text-primary" /> ID: {tenant.code}
-                </span>
-                {tenant.gstNo && (
-                   <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase bg-emerald-50/50 text-emerald-600 px-2 py-1 rounded-full border border-emerald-100">
-                    <FileText size={12} /> {tenant.gstNo}
-                  </span>
-                )}
-              </div>
+
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={handleExportPDF} disabled={exportingPDF}
+                style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', background:'#fff', border:'1.5px solid #f0f2f5', borderRadius:9, fontSize:11, fontWeight:600, color:'#5a6474', cursor:'pointer', fontFamily:'inherit' }}>
+                {exportingPDF ? <Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> : <Download size={12}/>} Ledger PDF
+              </button>
+              <button onClick={onClose}
+                style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', background:'#1a1a2e', color:'#fff', border:'none', borderRadius:9, fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                <X size={12}/> Close
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center lg:justify-end gap-3 pb-2 md:pb-0">
-            <button 
-              onClick={handleExportLedgerPDF}
-              disabled={exportingPDF}
-              className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
-            >
-              {exportingPDF ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              Ledger PDF
-            </button>
-            <button 
-              onClick={onClose}
-              className="px-5 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg flex items-center gap-2"
-            >
-              <X size={14} />
-              Close
-            </button>
-          </div>
-        </div>
-
-        {/* Integrated Tabs */}
-        <div className="relative z-10 mt-2">
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-2">
-            <TabsNavItem active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="Overview" icon={PieChart} />
-            <TabsNavItem active={activeTab === 'ledger'} onClick={() => setActiveTab('ledger')} label="Ledger" icon={FileText} />
-            <TabsNavItem active={activeTab === 'invoices'} onClick={() => setActiveTab('invoices')} label="Billing" icon={Receipt} />
-            <TabsNavItem active={activeTab === 'lease'} onClick={() => setActiveTab('lease')} label="Lease" icon={Calendar} />
-            <TabsNavItem active={activeTab === 'documents'} onClick={() => setActiveTab('documents')} label="Documents" icon={FileCheck} />
+          {/* Tab bar */}
+          <div style={{ display:'flex', overflowX:'auto' }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                style={{
+                  display:'flex', alignItems:'center', gap:5,
+                  padding:'9px 16px', background:'none', border:'none',
+                  cursor:'pointer', fontSize:12, fontFamily:'inherit',
+                  fontWeight: activeTab===t.id ? 700 : 500,
+                  color: activeTab===t.id ? '#f97316' : '#9ba8b5',
+                  borderBottom: activeTab===t.id ? '2px solid #f97316' : '2px solid transparent',
+                  marginBottom: -2, transition:'all 0.15s', whiteSpace:'nowrap',
+                }}>
+                <t.icon size={12}/> {t.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Main Panel Content */}
-      <div className="min-h-[500px] px-1 md:px-0 pt-4">
+      {/* ── TAB CONTENT ── */}
+      <div style={{ maxWidth:1280, margin:'0 auto', padding:'20px 24px 40px' }}>
         <AnimatePresence mode="wait">
-            {activeTab === 'overview' && (
-              <motion.div 
-                key="overview" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                className="space-y-8"
-              >
-                {/* Financial Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <StatCard 
-                    label="Total Invoiced" 
-                    value={paymentSummary.totalInvoiced || 0} 
-                    icon={Receipt} 
-                    color="blue"
-                  />
-                  <StatCard 
-                    label="Total Received" 
-                    value={paymentSummary.totalReceived || 0} 
-                    icon={CheckCircle2} 
-                    color="emerald"
-                  />
-                  <StatCard 
-                    label="Total TDS" 
-                    value={paymentSummary.totalTds || 0} 
-                    icon={ShieldCheck} 
-                    color="purple"
-                  />
-                  <StatCard 
-                    label="Pending Balance" 
-                    value={paymentSummary.pendingBalance || 0} 
-                    icon={Clock} 
-                    color="rose"
-                    isAlert={paymentSummary.pendingBalance > 0}
-                  />
-                </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  {/* Analytics Section */}
-                  <div className="lg:col-span-8 bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xl font-bold text-slate-800">Financial Analytics</h3>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Revenue Trends (6 Months)</p>
+          {/* ── OVERVIEW ── */}
+          {activeTab === 'overview' && (
+            <motion.div key="ov" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
+              style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+              {/* Stat cards */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
+                {[
+                  { label:'Total Invoiced',  val:paymentSummary.totalInvoiced||0,  color:'#6366f1', bg:'#eef2ff', Icon:Receipt      },
+                  { label:'Total Received',  val:paymentSummary.totalReceived||0,  color:'#10b981', bg:'#f0fdf4', Icon:CheckCircle2 },
+                  { label:'TDS Deducted',    val:paymentSummary.totalTds||0,       color:'#8b5cf6', bg:'#f5f3ff', Icon:ShieldCheck  },
+                  { label:'Pending Balance', val:paymentSummary.pendingBalance||0, color:paymentSummary.pendingBalance>0?'#ef4444':'#10b981', bg:paymentSummary.pendingBalance>0?'#fff1f2':'#f0fdf4', Icon:Clock },
+                ].map((s,i) => (
+                  <div key={i} style={{ ...SC, borderLeft:`3px solid ${s.color}`, borderRadius:'0 16px 16px 0', padding:'16px 18px' }}>
+                    <div style={{ width:32, height:32, borderRadius:9, background:s.bg, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:10 }}>
+                      <s.Icon size={15} color={s.color}/>
                     </div>
-                    <div className="h-[350px] w-full">
-                      {analytics.monthlyTrend && analytics.monthlyTrend.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={analytics.monthlyTrend}>
-                            <defs>
-                              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#FB923C" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#FB923C" stopOpacity={0}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis 
-                              dataKey="month" 
-                              axisLine={false} 
-                              tickLine={false} 
-                              tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }} 
-                              dy={10}
-                            />
-                            <YAxis 
-                              axisLine={false} 
-                              tickLine={false} 
-                              tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }} 
-                              tickFormatter={(val) => `₹${val/1000}k`}
-                            />
-                            <Tooltip 
-                              contentStyle={{ 
-                                borderRadius: '16px', 
-                                border: 'none', 
-                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                                padding: '12px'
-                              }}
-                            />
-                            <Area 
-                              type="monotone" 
-                              dataKey="invoiced" 
-                              stroke="#FB923C" 
-                              strokeWidth={4}
-                              fillOpacity={1} 
-                              fill="url(#colorValue)" 
-                            />
-                            <Area 
-                              type="monotone" 
-                              dataKey="received" 
-                              stroke="#10B981" 
-                              strokeWidth={4}
-                              fillOpacity={1} 
-                              fill="url(#colorValue)" 
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-slate-400 font-bold italic">
-                          Not enough transaction data for analytics.
-                        </div>
-                      )}
+                    <div style={{ fontSize:9, color:'#9ba8b5', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em' }}>{s.label}</div>
+                    <div style={{ fontSize:20, fontWeight:800, color:'#1a1a2e', letterSpacing:'-0.5px', marginTop:2 }}>₹{s.val.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Chart + Contact */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 310px', gap:14 }}>
+                {/* Chart */}
+                <div style={{ ...SC, padding:20 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                    <div>
+                      <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Financial Analytics</p>
+                      <p style={{ fontSize:11, color:'#9ba8b5', marginTop:2 }}>Revenue trends — last 6 months</p>
+                    </div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {[{c:'#f97316',l:'Invoiced'},{c:'#10b981',l:'Received'}].map(x => (
+                        <span key={x.l} style={{ fontSize:10, fontWeight:600, color:'#9ba8b5', background:'#f8f9fb', padding:'3px 9px', borderRadius:6, display:'flex', alignItems:'center', gap:4 }}>
+                          <span style={{ width:6, height:6, borderRadius:'50%', background:x.c, display:'inline-block' }}/>{x.l}
+                        </span>
+                      ))}
                     </div>
                   </div>
-
-                  {/* Contact Dossier */}
-                  <div className="lg:col-span-4 space-y-8">
-                    <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-6">
-                      <h3 className="text-xl font-bold text-slate-800">Contact Dossier</h3>
-                      <div className="space-y-6">
-                        <DossierItem label="Contact Person" value={tenant.contactPerson} icon={UserIcon} />
-                        <DossierItem label="Alternate Contact" value={tenant.alternateContactPerson} icon={UserIcon} />
-                        <DossierItem label="Mobile Number" value={tenant.mobile} icon={Phone} />
-                        <DossierItem label="Email Address" value={tenant.email} icon={Mail} />
-                        <DossierItem label="Billing Address" value={tenant.billingAddress} icon={MapPin} isAddress />
-                      </div>
-                    </div>
-
-                    <div className="bg-primary/5 p-8 rounded-[32px] border border-primary/10 space-y-4">
-                      <h4 className="text-sm font-black text-primary uppercase tracking-widest flex items-center gap-2">
-                        <ShieldCheck size={16} /> GST Compliance
-                      </h4>
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-tight">Registered Entity Name</p>
-                        <p className="text-sm font-black text-slate-800">{tenant.legalName || tenant.name}</p>
-                      </div>
-                      <div className="pt-2">
-                         <div className="px-4 py-2 bg-white rounded-xl border border-primary/10 inline-block">
-                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">GST Number</p>
-                           <p className="text-xs font-black text-primary tracking-widest">{tenant.gstNo || 'Not Provided'}</p>
-                         </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'ledger' && (
-              <motion.div 
-                key="ledger" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden flex flex-col"
-                ref={ledgerRef}
-              >
-                <div className="p-8 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md z-10">
-                  <div className="flex items-center gap-4">
-                    {company?.logoUrl && (
-                      <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 bg-white">
-                        <img src={company.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                  <div style={{ height:210 }}>
+                    {analytics.monthlyTrend?.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={analytics.monthlyTrend}>
+                          <defs>
+                            <linearGradient id="gi" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f97316" stopOpacity={0.1}/><stop offset="95%" stopColor="#f97316" stopOpacity={0}/></linearGradient>
+                            <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f2f5"/>
+                          <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:600,fill:'#9ba8b5'}} dy={6}/>
+                          <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:600,fill:'#9ba8b5'}} tickFormatter={v=>`₹${v/1000}k`}/>
+                          <Tooltip contentStyle={{borderRadius:12,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.08)',fontSize:12}}/>
+                          <Area type="monotone" dataKey="invoiced" stroke="#f97316" strokeWidth={2.5} fillOpacity={1} fill="url(#gi)"/>
+                          <Area type="monotone" dataKey="received" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#gr)"/>
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#c5cdd6', gap:8 }}>
+                        <TrendingUp size={28} strokeWidth={1}/>
+                        <p style={{ fontSize:12 }}>Not enough data</p>
                       </div>
                     )}
-                    <div>
-                      <h3 className="font-bold text-slate-800 text-lg">Financial Ledger</h3>
-                      <p className="text-xs text-slate-400 font-medium">Statement for {tenant.name} | {tenant.company}</p>
+                  </div>
+                </div>
+
+                {/* Contact + GST */}
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  <div style={{ ...SC, padding:16 }}>
+                    <p style={{ fontSize:12, fontWeight:800, color:'#1a1a2e', margin:'0 0 10px' }}>Contact Dossier</p>
+                    {[
+                      { Icon:UserIcon, label:'Contact',   val:tenant.contactPerson          },
+                      { Icon:UserIcon, label:'Alternate', val:tenant.alternateContactPerson  },
+                      { Icon:Phone,    label:'Mobile',    val:tenant.mobile                  },
+                      { Icon:Mail,     label:'Email',     val:tenant.email                   },
+                      { Icon:MapPin,   label:'Address',   val:tenant.billingAddress          },
+                    ].map((f,i) => (
+                      <div key={i} style={{ display:'flex', gap:8, padding:'7px 0', borderBottom:i<4?'1px solid #f8f9fb':'none' }}>
+                        <div style={{ width:24, height:24, borderRadius:6, background:'#f8f9fb', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <f.Icon size={11} color="#9ba8b5"/>
+                        </div>
+                        <div style={{ minWidth:0 }}>
+                          <p style={{ fontSize:8, fontWeight:700, color:'#c5cdd6', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>{f.label}</p>
+                          <p style={{ fontSize:11, fontWeight:600, color:'#1a1a2e', margin:'1px 0 0', wordBreak:'break-word' }}>{f.val||'—'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ ...SC, padding:14, background:'rgba(249,115,22,0.03)', border:'1px solid rgba(249,115,22,0.1)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:8 }}>
+                      <ShieldCheck size={12} color="#f97316"/>
+                      <p style={{ fontSize:9, fontWeight:800, color:'#f97316', textTransform:'uppercase', letterSpacing:'0.1em', margin:0 }}>GST Compliance</p>
+                    </div>
+                    <p style={{ fontSize:11, fontWeight:700, color:'#1a1a2e', margin:'0 0 8px' }}>{tenant.legalName||tenant.name}</p>
+                    <div style={{ background:'#fff', padding:'4px 10px', borderRadius:7, border:'1px solid rgba(249,115,22,0.12)', display:'inline-block' }}>
+                      <p style={{ fontSize:8, color:'#9ba8b5', fontWeight:700, textTransform:'uppercase', margin:0 }}>GSTIN</p>
+                      <p style={{ fontSize:11, fontWeight:800, color:'#f97316', margin:0 }}>{tenant.gstNo||'Not Provided'}</p>
                     </div>
                   </div>
-                  <div className="flex gap-4 print:hidden">
-                     <div className="px-6 py-3 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opening Bal</span>
-                        <span className="text-sm font-black text-slate-700">₹{ledgerData?.summary.openingBalance?.toLocaleString() || '0.00'}</span>
-                     </div>
-                     <div className="px-6 py-3 bg-primary/10 rounded-2xl border border-primary/20 flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-primary uppercase tracking-widest">{ledgerData?.summary.closingBalance && ledgerData.summary.closingBalance < 0 ? 'Advance Bal' : 'Closing Bal'}</span>
-                        <span className="text-sm font-black text-primary">₹{Math.abs(ledgerData?.summary.closingBalance || 0).toLocaleString()}</span>
-                     </div>
-                  </div>
                 </div>
+              </div>
+            </motion.div>
+          )}
 
-                <div className="overflow-x-auto overflow-y-auto max-h-[60vh] custom-scrollbar">
-                  {ledgerLoading ? (
-                    <div className="p-20 flex flex-col items-center justify-center">
-                      <Loader2 className="animate-spin text-primary" size={32} />
-                      <p className="mt-4 text-slate-400 font-bold uppercase tracking-widest text-[10px]">Calculating Ledger...</p>
-                    </div>
-                  ) : (
-                    <table className="w-full text-left border-collapse">
-                      <thead className="sticky top-0 bg-slate-50/90 backdrop-blur-sm z-20 border-b border-slate-100">
-                        <tr>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Date</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Particular</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Ref No.</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-slate-800 uppercase tracking-widest text-right">Debit</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-emerald-600 uppercase tracking-widest text-right">Credit</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-purple-600 uppercase tracking-widest text-right">TDS</th>
-                          <th className="px-8 py-5 text-[10px] font-extrabold text-slate-800 uppercase tracking-widest text-right">Running Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {!ledgerData || ledgerData.ledger.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="px-8 py-20 text-center text-slate-400 font-medium italic">
-                              No ledger entries found.
-                            </td>
-                          </tr>
-                        ) : ledgerData.ledger.map((entry) => (
-                          <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors group">
-                             <td className="px-8 py-5 text-sm font-bold text-slate-400">{new Date(entry.date).toLocaleDateString('en-GB')}</td>
-                             <td className="px-8 py-5">
-                                <p className="text-sm font-bold text-slate-700">{entry.particular}</p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <TypeBadge type={entry.type} />
-                                  {entry.notes && <span className="text-[10px] text-slate-400 italic">"{entry.notes}"</span>}
-                                </div>
-                             </td>
-                             <td className="px-8 py-5 text-xs font-bold text-slate-400">{entry.refNo ? `#${entry.refNo}` : '-'}</td>
-                             <td className="px-8 py-5 text-sm font-bold text-slate-800 text-right">
-                                {entry.debit > 0 ? `₹${entry.debit.toLocaleString()}` : '-'}
-                             </td>
-                             <td className="px-8 py-5 text-sm font-bold text-emerald-600 text-right">
-                                {entry.credit > 0 ? `₹${entry.credit.toLocaleString()}` : '-'}
-                             </td>
-                             <td className="px-8 py-5 text-sm font-bold text-purple-600 text-right">
-                                {entry.tds > 0 ? `₹${entry.tds.toLocaleString()}` : '-'}
-                             </td>
-                             <td className={`px-8 py-5 text-sm font-black text-right ${entry.runningBalance < 0 ? 'text-blue-600' : 'text-slate-800'}`}>
-                                ₹{Math.abs(entry.runningBalance || 0).toLocaleString()} {entry.runningBalance < 0 ? 'Cr' : 'Dr'}
-                             </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6 print:hidden">
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 w-full md:w-auto">
-                     <SummaryItem label="Invoiced" value={ledgerData?.summary.totalInvoiced} color="slate" />
-                     <SummaryItem label="Adjusted" value={ledgerData?.summary.totalAdjustments} color="amber" />
-                     <SummaryItem label="Received" value={ledgerData?.summary.totalReceived} color="emerald" />
-                     <SummaryItem label="Total TDS" value={ledgerData?.summary.totalTds} color="purple" />
-                     <SummaryItem 
-                       label={ledgerData?.summary.closingBalance && ledgerData.summary.closingBalance < 0 ? 'Advance' : 'Balance'} 
-                       value={Math.abs(ledgerData?.summary.closingBalance || 0)} 
-                       color={ledgerData?.summary.closingBalance && ledgerData.summary.closingBalance < 0 ? 'blue' : 'primary'} 
-                     />
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                     <button 
-                       onClick={() => setShowOpeningAdjustment(true)}
-                       className="px-5 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-amber-100 transition-all flex items-center gap-2"
-                     >
-                        <Plus size={14} /> 
-                        Adjustment
-                     </button>
-                     <button 
-                       onClick={handleExportLedgerExcel}
-                       disabled={exportingExcel}
-                       className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-50"
-                     >
-                        {exportingExcel ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} 
-                        Download Excel
-                     </button>
-                     <button 
-                       onClick={handleExportLedgerPDF}
-                       disabled={exportingPDF}
-                       className="px-5 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50"
-                     >
-                        {exportingPDF ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} 
-                        Generate PDF
-                     </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'invoices' && (
-              <motion.div 
-                key="invoices" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden"
-              >
-                <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+          {/* ── LEDGER ── */}
+          {activeTab === 'ledger' && (
+            <motion.div key="ld" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
+              style={{ ...SC, overflow:'hidden' }} ref={ledgerRef}>
+              {/* Ledger header */}
+              <div style={{ padding:'16px 20px', borderBottom:'1px solid #f8f9fb', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  {company?.logoUrl && <img src={company.logoUrl} alt="Logo" style={{ width:36, height:36, borderRadius:8, objectFit:'contain', border:'1px solid #f0f2f5' }} referrerPolicy="no-referrer"/>}
                   <div>
-                    <h3 className="font-bold text-slate-800 text-lg">Billing History</h3>
-                    <p className="text-xs text-slate-400 font-medium">Complete record of generated invoices</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-400 uppercase mr-2">Status Key:</span>
-                    <InvoiceStatusBadge status="Paid" />
-                    <InvoiceStatusBadge status="Partial" />
-                    <InvoiceStatusBadge status="Pending" />
+                    <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Financial Ledger</p>
+                    <p style={{ fontSize:11, color:'#9ba8b5', margin:0 }}>Statement for {tenant.name} | {tenant.company}</p>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50/50">
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inv No.</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bill Date</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Total Invoice</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Received</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">TDS</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Balance</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Status</th>
-                        <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                <div style={{ display:'flex', gap:10 }}>
+                  {[
+                    { label:'Opening Bal', val:`₹${(ledgerData?.summary.openingBalance||0).toLocaleString()}`, style:{background:'#f8f9fb', border:'1px solid #f0f2f5', color:'#5a6474'} },
+                    { label:(ledgerData?.summary.closingBalance||0)<0?'Advance Bal':'Closing Bal', val:`₹${Math.abs(ledgerData?.summary.closingBalance||0).toLocaleString()}`, style:{background:'rgba(249,115,22,0.06)', border:'1px solid rgba(249,115,22,0.15)', color:'#f97316'} },
+                  ].map((b,i) => (
+                    <div key={i} style={{ padding:'8px 14px', borderRadius:10, textAlign:'center', ...b.style }}>
+                      <p style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>{b.label}</p>
+                      <p style={{ fontSize:13, fontWeight:800, margin:0 }}>{b.val}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ledger table */}
+              <div style={{ overflowX:'auto', maxHeight:'55vh', overflowY:'auto' }}>
+                {ledgerLoading ? (
+                  <div style={{ padding:60, display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+                    <Loader2 size={28} color="#f97316" style={{animation:'spin 1s linear infinite'}}/>
+                    <p style={{ fontSize:11, color:'#9ba8b5', fontWeight:600 }}>Calculating Ledger...</p>
+                  </div>
+                ) : (
+                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                    <thead style={{ position:'sticky', top:0, background:'#f8f9fb', zIndex:5 }}>
+                      <tr>
+                        {['Date','Particular','Ref No.','Debit','Credit','TDS','Running Balance'].map((h,i) => (
+                          <th key={h} style={{ padding:'10px 16px', fontSize:9, fontWeight:800, color:['','','','#1a1a2e','#10b981','#8b5cf6','#1a1a2e'][i]||'#9ba8b5', textTransform:'uppercase', letterSpacing:'0.08em', borderBottom:'2px solid #f0f2f5', textAlign:i>=3?'right':'left', whiteSpace:'nowrap' }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {invoices.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="px-8 py-20 text-center text-slate-400 font-medium italic">
-                            No billing records found for this tenant.
+                    <tbody>
+                      {!ledgerData?.ledger.length ? (
+                        <tr><td colSpan={7} style={{ padding:'40px', textAlign:'center', color:'#9ba8b5', fontSize:13 }}>No ledger entries found.</td></tr>
+                      ) : ledgerData.ledger.map(e => (
+                        <tr key={e.id} style={{ borderBottom:'1px solid #f8f9fb', transition:'background 0.1s' }}
+                          onMouseEnter={el=>(el.currentTarget as HTMLElement).style.background='#fafbfc'}
+                          onMouseLeave={el=>(el.currentTarget as HTMLElement).style.background='transparent'}>
+                          <td style={{ padding:'11px 16px', fontSize:12, fontWeight:600, color:'#9ba8b5', whiteSpace:'nowrap' }}>{new Date(e.date).toLocaleDateString('en-GB')}</td>
+                          <td style={{ padding:'11px 16px' }}>
+                            <p style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', margin:0 }}>{e.particular}</p>
+                            <TypeBadge type={e.type}/>
+                            {e.notes && <span style={{ fontSize:10, color:'#9ba8b5', fontStyle:'italic' }}> "{e.notes}"</span>}
                           </td>
-                        </tr>
-                      ) : invoices.map((inv: Invoice) => (
-                        <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="px-8 py-5 text-sm font-bold text-slate-400">#{inv.invoiceNo}</td>
-                          <td className="px-8 py-5 text-sm font-bold text-slate-700">{inv.billDate}</td>
-                          <td className="px-8 py-5 text-sm font-bold text-slate-700 text-right">₹{inv.totalInvoice?.toLocaleString()}</td>
-                          <td className="px-8 py-5 text-sm font-bold text-emerald-600 text-right">₹{(inv.receivedAmount || inv.received || 0).toLocaleString()}</td>
-                          <td className="px-8 py-5 text-sm font-bold text-purple-600 text-right">₹{(inv.tdsAmount || 0).toLocaleString()}</td>
-                          <td className="px-8 py-5 text-sm font-bold text-rose-500 text-right">₹{(inv.balanceAmount || inv.balance || 0).toLocaleString()}</td>
-                          <td className="px-8 py-5 text-center">
-                            <InvoiceStatusBadge status={inv.paymentStatus} />
-                          </td>
-                          <td className="px-8 py-5 text-right">
-                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1" title="Add Payment" onClick={() => setPayingInvoice(inv)}>
-                                  <Plus size={14} />
-                                  <span className="text-[10px] font-bold uppercase">Payment</span>
-                                </button>
-                                <button 
-                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" 
-                                  title="WhatsApp Reminder" 
-                                  onClick={() => {
-                                    const msg = `Hi ${tenant.name}, this is a reminder regarding Invoice #${inv.invoiceNo} for ₹${inv.totalInvoice.toLocaleString()}. Pending Balance: ₹${(inv.balanceAmount || inv.balance || 0).toLocaleString()}. Please ignore if already paid.`;
-                                    window.open(`https://wa.me/${tenant.mobile.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-                                  }}
-                                >
-                                  <MessageSquare size={14} />
-                                </button>
-                                <button className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="View" onClick={() => setSelectedInvoice(inv)}>
-                                  <Eye size={14} />
-                                </button>
-                                <button className="p-1.5 text-slate-400 hover:text-amber-500 transition-colors" title="Edit" onClick={() => setEditingInvoice(inv)}>
-                                  <Edit2 size={14} />
-                                </button>
-                                <button className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors" title="Delete" onClick={() => setDeletingInvoice(inv)}>
-                                  <Trash2 size={14} />
-                                </button>
-                             </div>
+                          <td style={{ padding:'11px 16px', fontSize:11, color:'#9ba8b5' }}>{e.refNo?`#${e.refNo}`:'-'}</td>
+                          <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#1a1a2e', textAlign:'right' }}>{e.debit>0?`₹${e.debit.toLocaleString()}`:'-'}</td>
+                          <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#10b981', textAlign:'right' }}>{e.credit>0?`₹${e.credit.toLocaleString()}`:'-'}</td>
+                          <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#8b5cf6', textAlign:'right' }}>{e.tds>0?`₹${e.tds.toLocaleString()}`:'-'}</td>
+                          <td style={{ padding:'11px 16px', fontSize:12, fontWeight:800, textAlign:'right', color:e.runningBalance<0?'#3b82f6':'#1a1a2e' }}>
+                            ₹{Math.abs(e.runningBalance||0).toLocaleString()} {e.runningBalance<0?'Cr':'Dr'}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'lease' && (
-              <motion.div 
-                key="lease" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-8"
-              >
-                <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-8">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center">
-                      <Clock size={20} />
-                    </div>
-                    <h3 className="font-bold text-slate-800 text-lg">Lease Roadmap</h3>
-                  </div>
-                  <div className="space-y-8 relative before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-50">
-                    <TimelineItemLarge label="Lease Commencement" date={tenant.leaseStart} desc="Initial move-in and rent start date" active />
-                    <TimelineItemLarge label="Lock-in Period" date={lockInExpiryDate} desc="Minimum commitment period ends" />
-                    <TimelineItemLarge label="Lease Expiration" date={tenant.leaseEnd} desc="Agreement renewal or termination date" danger />
-                  </div>
-                </div>
-
-                <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-8">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                      <IndianRupee size={20} />
-                    </div>
-                    <h3 className="font-bold text-slate-800 text-lg">Financial Configuration</h3>
-                  </div>
-                  <div className="grid grid-cols-2 gap-8">
-                    <ConfigBlock label="Current Monthly Rent" value={`₹${tenant.currentRent?.toLocaleString()}`} sub="Pre-GST Amount" highlight />
-                    <ConfigBlock label="Security Deposit" value={`₹${tenant.securityDeposit?.toLocaleString()}`} sub="Refundable Amount" highlight />
-                    <ConfigBlock label="Rent Free Period" value={`${tenant.rentFreePeriodDays} Days`} sub="Non-billing period" />
-                    <ConfigBlock label="Notice Period" value={`${tenant.noticePeriod} Days`} sub="Termination notice" />
-                    <ConfigBlock label="Lease Tenure" value={`${tenant.tenure} Months`} sub="Total duration" />
-                    <ConfigBlock label="Lock-in Period" value={`${tenant.lockIn} Months`} sub="Minimum stay requirement" />
-                    <ConfigBlock label="Escalation Clause" value={`${tenant.escalationPercent}%`} sub="Annual increment" />
-                    <ConfigBlock label="Purpose of Lease" value={tenant.rentalPurpose} sub="Business category" />
-                    <ConfigBlock label="Shipping Address" value={tenant.property} sub="Premises Address" />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'documents' && (
-              <motion.div 
-                key="documents" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
-              >
-                {tenant.agreementFileUrl ? (
-                  <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex flex-col items-center text-center space-y-6">
-                    <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-[28px] flex items-center justify-center shadow-inner">
-                      <FileCheck size={32} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-800">Lease Agreement</h4>
-                      <p className="text-xs text-slate-400 font-medium mt-1">Digital scanned copy of original contract</p>
-                    </div>
-                    <div className="flex gap-3 w-full">
-                      <a href={tenant.agreementFileUrl} target="_blank" className="flex-1 px-4 py-3 bg-slate-50 text-slate-600 rounded-2xl font-bold text-xs hover:bg-slate-100 transition-all border border-slate-100">Preview</a>
-                      <a href={tenant.agreementFileUrl} download className="flex-1 px-4 py-3 bg-emerald-500 text-white rounded-2xl font-bold text-xs hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20">Download</a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-white p-12 rounded-[32px] border-2 border-dashed border-slate-100 flex flex-col items-center text-center opacity-60">
-                    <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mb-4">
-                      <FileText size={32} />
-                    </div>
-                    <p className="text-sm font-bold text-slate-400">No documents uploaded</p>
-                  </div>
                 )}
-              </motion.div>
-            )}
+              </div>
+
+              {/* Ledger footer */}
+              <div style={{ padding:'14px 20px', background:'#fafbfc', borderTop:'1px solid #f0f2f5', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
+                <div style={{ display:'flex', gap:16 }}>
+                  {[
+                    {l:'Invoiced',  v:ledgerData?.summary.totalInvoiced,   c:'#1a1a2e'},
+                    {l:'Received',  v:ledgerData?.summary.totalReceived,   c:'#10b981'},
+                    {l:'TDS',       v:ledgerData?.summary.totalTds,        c:'#8b5cf6'},
+                    {l:'Balance',   v:Math.abs(ledgerData?.summary.closingBalance||0), c:'#f97316'},
+                  ].map((s,i) => (
+                    <div key={i}>
+                      <p style={{ fontSize:9, color:'#9ba8b5', fontWeight:700, textTransform:'uppercase', margin:0 }}>{s.l}</p>
+                      <p style={{ fontSize:13, fontWeight:800, color:s.c, margin:0 }}>₹{(s.v||0).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={()=>setShowOpeningAdj(true)} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:9, fontSize:11, fontWeight:700, color:'#b45309', cursor:'pointer', fontFamily:'inherit' }}>
+                    <Plus size={12}/> Adjustment
+                  </button>
+                  <button onClick={handleExportExcel} disabled={exportingExcel} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', background:'#fff', border:'1.5px solid #f0f2f5', borderRadius:9, fontSize:11, fontWeight:600, color:'#5a6474', cursor:'pointer', fontFamily:'inherit' }}>
+                    {exportingExcel?<Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/>:<Download size={12}/>} Excel
+                  </button>
+                  <button onClick={handleExportPDF} disabled={exportingPDF} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', background:'#1a1a2e', color:'#fff', border:'none', borderRadius:9, fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                    {exportingPDF?<Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/>:<FileText size={12}/>} PDF
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── BILLING ── */}
+          {activeTab === 'invoices' && (
+            <motion.div key="inv" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
+              style={{ ...SC, overflow:'hidden' }}>
+              <div style={{ padding:'16px 20px', borderBottom:'1px solid #f8f9fb', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Billing History</p>
+                  <p style={{ fontSize:11, color:'#9ba8b5', margin:'3px 0 0' }}>Complete record of generated invoices</p>
+                </div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <InvoiceStatusBadge status="Paid"/><InvoiceStatusBadge status="Partial"/><InvoiceStatusBadge status="Pending"/>
+                </div>
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr style={{ background:'#f8f9fb' }}>
+                      {['Inv No.','Bill Date','Total','Received','TDS','Balance','Status','Actions'].map((h,i)=>(
+                        <th key={h} style={{ padding:'10px 16px', fontSize:9, fontWeight:800, color:'#9ba8b5', textTransform:'uppercase', letterSpacing:'0.08em', borderBottom:'2px solid #f0f2f5', textAlign:i>=2&&i<=5?'right':'left', whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.length===0 ? (
+                      <tr><td colSpan={8} style={{ padding:'40px', textAlign:'center', color:'#9ba8b5', fontSize:13 }}>No billing records found.</td></tr>
+                    ) : invoices.map((inv: Invoice) => (
+                      <tr key={inv.id} style={{ borderBottom:'1px solid #f8f9fb', transition:'background 0.1s' }}
+                        onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background='#fafbfc'}
+                        onMouseLeave={e=>(e.currentTarget as HTMLElement).style.background='transparent'}>
+                        <td style={{ padding:'11px 16px', fontSize:11, fontWeight:700, color:'#9ba8b5' }}>#{inv.invoiceNo}</td>
+                        <td style={{ padding:'11px 16px', fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{inv.billDate}</td>
+                        <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#1a1a2e', textAlign:'right' }}>₹{inv.totalInvoice?.toLocaleString()}</td>
+                        <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#10b981', textAlign:'right' }}>₹{(inv.receivedAmount||inv.received||0).toLocaleString()}</td>
+                        <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#8b5cf6', textAlign:'right' }}>₹{(inv.tdsAmount||0).toLocaleString()}</td>
+                        <td style={{ padding:'11px 16px', fontSize:12, fontWeight:700, color:'#ef4444', textAlign:'right' }}>₹{(inv.balanceAmount||inv.balance||0).toLocaleString()}</td>
+                        <td style={{ padding:'11px 16px' }}><InvoiceStatusBadge status={inv.paymentStatus}/></td>
+                        <td style={{ padding:'11px 16px' }}>
+                          <div style={{ display:'flex', gap:4, justifyContent:'flex-end' }}>
+                            <button onClick={()=>setPayingInvoice(inv)} style={{ padding:'4px 10px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:6, cursor:'pointer', fontSize:10, fontWeight:700, color:'#15803d', display:'flex', alignItems:'center', gap:3, fontFamily:'inherit' }}><Plus size={11}/> Pay</button>
+                            <button onClick={()=>setSelectedInvoice(inv)} style={{ padding:'4px 8px', background:'#f8f9fb', border:'1px solid #f0f2f5', borderRadius:6, cursor:'pointer', color:'#5a6474', display:'flex', alignItems:'center', fontFamily:'inherit' }}><Eye size={12}/></button>
+                            <button onClick={()=>setEditingInvoice(inv)} style={{ padding:'4px 8px', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:6, cursor:'pointer', color:'#b45309', display:'flex', alignItems:'center', fontFamily:'inherit' }}><History size={12}/></button>
+                            <button onClick={()=>setDeletingInvoice(inv)} style={{ padding:'4px 8px', background:'#fff1f2', border:'1px solid #fecdd3', borderRadius:6, cursor:'pointer', color:'#e11d48', display:'flex', alignItems:'center', fontFamily:'inherit' }}><Trash2 size={12}/></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── LEASE ── */}
+          {activeTab === 'lease' && (
+            <motion.div key="ls" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
+              style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+              <div style={{ ...SC, padding:20 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+                  <div style={{ width:32, height:32, borderRadius:9, background:'#fff7ed', display:'flex', alignItems:'center', justifyContent:'center' }}><Clock size={15} color="#f97316"/></div>
+                  <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Lease Roadmap</p>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  <TimelineItemLarge label="Lease Commencement" date={tenant.leaseStart} desc="Initial move-in and rent start date" active/>
+                  <TimelineItemLarge label="Lock-in Period Ends" date={lockInExpiry} desc="Minimum commitment period ends"/>
+                  <TimelineItemLarge label="Lease Expiration" date={tenant.leaseEnd} desc="Agreement renewal or termination" danger/>
+                </div>
+              </div>
+              <div style={{ ...SC, padding:20 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+                  <div style={{ width:32, height:32, borderRadius:9, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center' }}><IndianRupee size={15} color="#10b981"/></div>
+                  <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Financial Configuration</p>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  {[
+                    ['Monthly Rent',      `₹${tenant.currentRent?.toLocaleString()}`, true ],
+                    ['Security Deposit',  `₹${tenant.securityDeposit?.toLocaleString()}`, true],
+                    ['Rent-Free Period',  `${tenant.rentFreePeriodDays} Days`, false],
+                    ['Notice Period',     `${tenant.noticePeriod} Days`, false],
+                    ['Lease Tenure',      `${tenant.tenure} Months`, false],
+                    ['Lock-in Period',    `${tenant.lockIn} Months`, false],
+                    ['Escalation',        `${tenant.escalationPercent}%`, false],
+                    ['Purpose',           tenant.rentalPurpose||'—', false],
+                  ].map(([l,v,h])=><ConfigBlock key={l as string} label={l as string} value={v as string} highlight={h as boolean}/>)}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── DOCUMENTS ── */}
+          {activeTab === 'documents' && (
+            <motion.div key="doc" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}>
+              {tenant.agreementFileUrl ? (
+                <div style={{ ...SC, padding:24, maxWidth:360, display:'flex', flexDirection:'column', alignItems:'center', gap:16, textAlign:'center' }}>
+                  <div style={{ width:56, height:56, borderRadius:14, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center' }}><FileCheck size={26} color="#10b981"/></div>
+                  <div>
+                    <p style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', margin:0 }}>Lease Agreement</p>
+                    <p style={{ fontSize:11, color:'#9ba8b5', marginTop:4 }}>Digital scanned copy of original contract</p>
+                  </div>
+                  <div style={{ display:'flex', gap:10, width:'100%' }}>
+                    <a href={tenant.agreementFileUrl} target="_blank" style={{ flex:1, padding:'9px', background:'#f8f9fb', color:'#5a6474', borderRadius:9, fontWeight:600, fontSize:12, textAlign:'center', textDecoration:'none', border:'1px solid #f0f2f5' }}>Preview</a>
+                    <a href={tenant.agreementFileUrl} download style={{ flex:1, padding:'9px', background:'#10b981', color:'#fff', borderRadius:9, fontWeight:700, fontSize:12, textAlign:'center', textDecoration:'none' }}>Download</a>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ ...SC, padding:40, maxWidth:300, display:'flex', flexDirection:'column', alignItems:'center', gap:10, textAlign:'center', border:'2px dashed #f0f2f5', background:'transparent' }}>
+                  <FileText size={32} color="#e0e4ea"/>
+                  <p style={{ fontSize:13, fontWeight:600, color:'#9ba8b5', margin:0 }}>No documents uploaded</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </div>
-      
-      {/* Internal Overlay Modals */}
+
+      {/* ── Modals ── */}
       <AnimatePresence>
-        {payingInvoice && (
-          <PaymentEntryModal
-             invoice={payingInvoice}
-             onClose={() => setPayingInvoice(null)}
-             onSuccess={() => { setPayingInvoice(null); fetchDetails(); }}
-          />
-        )}
-        {selectedInvoice && (
-          <ViewInvoiceModal 
-             invoice={selectedInvoice}
-             tenant={tenant}
-             company={companies.find(c => c.id === selectedInvoice.companyId || c.companyName === selectedInvoice.company)}
-             onClose={() => setSelectedInvoice(null)}
-          />
-        )}
-        {editingInvoice && (
-          <InvoiceFormModal 
-             initialData={editingInvoice}
-             tenants={allTenants}
-             companies={companies}
-             onClose={() => setEditingInvoice(null)}
-             onSuccess={() => { setEditingInvoice(null); fetchDetails(); }}
-          />
-        )}
-        {showOpeningAdjustment && (
-          <OpeningAdjustmentModal 
-            tenant={tenant}
-            onClose={() => setShowOpeningAdjustment(false)}
-            onSuccess={() => {
-              setShowOpeningAdjustment(false);
-              fetchLedger();
-              fetchDetails();
-            }}
-          />
-        )}
-        {deletingInvoice && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-             <motion.div 
-               initial={{ scale: 0.95 }} animate={{ scale: 1 }}
-               className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full text-center"
-             >
-               <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                 <Trash2 size={32} />
-               </div>
-               <h4 className="text-xl font-bold text-slate-800 mb-2">Delete Invoice?</h4>
-               <p className="text-sm text-slate-400 mb-8">This will permanently remove invoice <span className="font-bold text-slate-600">#{deletingInvoice.invoiceNo}</span>. This action is irreversible.</p>
-               <div className="flex gap-3">
-                 <button onClick={() => setDeletingInvoice(null)} className="flex-1 py-3 font-bold text-slate-400 hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
-                 <button onClick={() => handleDeleteInvoice(deletingInvoice.id as string)} className="flex-1 py-3 bg-rose-500 text-white font-bold rounded-2xl shadow-lg shadow-rose-500/20 hover:bg-rose-600 transition-colors">Delete</button>
-               </div>
-             </motion.div>
+        {payingInvoice    && <PaymentEntryModal invoice={payingInvoice} onClose={()=>setPayingInvoice(null)} onSuccess={()=>{setPayingInvoice(null);fetchDetails();}}/>}
+        {selectedInvoice  && <ViewInvoiceModal invoice={selectedInvoice} tenant={tenant} company={companies.find(c=>c.id===selectedInvoice.companyId||c.companyName===selectedInvoice.company)} onClose={()=>setSelectedInvoice(null)}/>}
+        {editingInvoice   && <InvoiceFormModal initialData={editingInvoice} tenants={allTenants} companies={companies} onClose={()=>setEditingInvoice(null)} onSuccess={()=>{setEditingInvoice(null);fetchDetails();}}/>}
+        {showOpeningAdj   && <OpeningAdjustmentModal tenant={tenant} onClose={()=>setShowOpeningAdj(false)} onSuccess={()=>{setShowOpeningAdj(false);fetchLedger();fetchDetails();}}/>}
+        {deletingInvoice  && (
+          <div style={{ position:'fixed', inset:0, zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)' }}>
+            <motion.div initial={{scale:0.95}} animate={{scale:1}} style={{ background:'#fff', borderRadius:20, padding:28, maxWidth:360, width:'100%', textAlign:'center' }}>
+              <div style={{ width:48, height:48, borderRadius:12, background:'#fff1f2', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}><Trash2 size={22} color="#e11d48"/></div>
+              <p style={{ fontSize:16, fontWeight:800, color:'#1a1a2e', margin:'0 0 8px' }}>Delete Invoice?</p>
+              <p style={{ fontSize:12, color:'#9ba8b5', margin:'0 0 20px' }}>Invoice <strong>#{deletingInvoice.invoiceNo}</strong> will be permanently removed.</p>
+              <div style={{ display:'flex', gap:10 }}>
+                <button onClick={()=>setDeletingInvoice(null)} style={{ flex:1, padding:'10px', borderRadius:10, border:'1.5px solid #f0f2f5', background:'#fff', fontSize:13, fontWeight:600, color:'#5a6474', cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+                <button onClick={()=>handleDeleteInvoice(deletingInvoice.id as string)} style={{ flex:1, padding:'10px', borderRadius:10, border:'none', background:'#ef4444', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>Delete</button>
+              </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
-

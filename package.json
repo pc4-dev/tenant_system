@@ -7,10 +7,8 @@
     "build": "cd frontend && npm install && npm run build",
     "start": "npx tsx backend/server.ts",
     "dev": "concurrently \"npx tsx backend/server.ts\" \"cd frontend && npm run dev\"",
-    
     "backend": "tsx backend/server.ts",
     "frontend": "cd frontend && npm run dev",
-    
     "preview": "vite preview frontend",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit -p frontend/tsconfig.json"
@@ -51,6 +49,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/mongoose": "^5.11.96",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",

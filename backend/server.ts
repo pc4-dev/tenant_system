@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+dotenv.config();
 import { v2 as cloudinary } from 'cloudinary';
 import { createApp } from './src/app';
 import { isUsingMockData } from './src/mockData';
@@ -9,11 +10,13 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import express from 'express';
 
+
+
 // ── ES Module __dirname fix ──
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
-dotenv.config();
+
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 

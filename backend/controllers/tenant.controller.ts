@@ -6,8 +6,11 @@ import { mockStorage, isUsingMockData } from '../src/mockData';
 import fs from 'fs';
 import { v2 as cloudinary } from 'cloudinary';
 
-const isCloudinaryConfigured = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
-
+const isCloudinaryConfigured = () => !!(
+  process.env.CLOUDINARY_CLOUD_NAME && 
+  process.env.CLOUDINARY_API_KEY && 
+  process.env.CLOUDINARY_API_SECRET
+);
 const parseNum = (val: any) => {
   if (val === undefined || val === null || val === '') return undefined;
   const parsed = parseFloat(val);
@@ -105,11 +108,11 @@ export const createTenant = async (req: Request, res: Response) => {
     if (tenantData.openingBalanceAmount !== undefined) tenantData.openingBalanceAmount = parseNum(tenantData.openingBalanceAmount);
     
     if (file) {
-      if (!isCloudinaryConfigured) {
+      if (!isCloudinaryConfigured()) {
         const stats = fs.statSync(file.path);
-        if (stats.size > 14 * 1024 * 1024) {
+        if (stats.size > 20 * 1024 * 1024) {
           fs.unlinkSync(file.path);
-          return res.status(400).json({ error: 'File too large for database storage without Cloudinary (Max 14MB).' });
+          return res.status(400).json({ error: 'File too large! Max 20MB allowed.' });
         }
         const base64 = fs.readFileSync(file.path, { encoding: 'base64' });
         tenantData.agreementFileUrl = `data:${file.mimetype};base64,${base64}`;
@@ -215,7 +218,7 @@ export const updateTenant = async (req: Request, res: Response) => {
     if (updateData.openingBalanceAmount !== undefined) updateData.openingBalanceAmount = parseNum(updateData.openingBalanceAmount);
 
     if (file) {
-      if (!isCloudinaryConfigured) {
+      if (!isCloudinaryConfigured()) {
         const stats = fs.statSync(file.path);
         if (stats.size > 14 * 1024 * 1024) {
           fs.unlinkSync(file.path);

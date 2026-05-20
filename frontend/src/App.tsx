@@ -1,197 +1,149 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { 
-  LayoutDashboard, 
-  Users, 
-  ReceiptIndianRupee, 
-  Building2,
-  Settings, 
-  Menu, 
-  X, 
-  Bell, 
-  User,
-  ChevronRight,
-  LogOut,
-  Plus,
-  FileText
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '@/lib/utils';
+import { Menu, Bell, ChevronRight, Settings } from 'lucide-react';
+import { motion } from 'motion/react';
 
-// Components
-import Dashboard from '../pages/Dashboard';
-import TenantList from '../pages/Tenants';
+// ── Sidebar Component ─────────────────────────────────────────────────────────
+import Sidebar from '../components/Sidebar';
+
+// ── Pages ─────────────────────────────────────────────────────────────────────
+import Dashboard    from '../pages/Dashboard';
+import TenantList   from '../pages/Tenants';
 import TenantFormPage from '../pages/TenantFormPage';
-import InvoiceList from '../pages/Invoices';
-import CompanyList from '../pages/Companies';
-import Reports from '../pages/Reports';
+import InvoiceList  from '../pages/Invoices';
+import CompanyList  from '../pages/Companies';
+import Reports      from '../pages/Reports';
+
+// ── Page title map ────────────────────────────────────────────────────────────
+const PAGE_TITLES: Record<string, string> = {
+  '/':          'Overview',
+  '/tenants':   'Tenants',
+  '/invoices':  'Invoices',
+  '/reports':   'Reports',
+  '/companies': 'Companies',
+  '/settings':  'Settings',
+};
 
 export default function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
-  const [dbStatus, setDbStatus] = useState<{ isDemo: boolean; database: string } | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile,    setIsMobile]    = useState(window.innerWidth <= 1024);
+  const [dbStatus,    setDbStatus]    = useState<{ isDemo: boolean } | null>(null);
   const location = useLocation();
 
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth <= 1024) {
-        setIsSidebarOpen(false);
-      } else {
-        setIsSidebarOpen(true);
-      }
+    const onResize = () => {
+      const mobile = window.innerWidth <= 1024;
+      setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
+      else setSidebarOpen(true);
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   useEffect(() => {
-    fetch('/api/status')
-      .then(res => res.json())
-      .then(setDbStatus)
-      .catch(() => setDbStatus({ isDemo: true, database: 'Failed to check' }));
-
-    // On mobile, close sidebar on route change
-    if (window.innerWidth <= 1024) {
-      setIsSidebarOpen(false);
-    }
+    fetch('/api/status').then(r => r.json()).then(setDbStatus).catch(() => setDbStatus({ isDemo: true }));
+    if (isMobile) setSidebarOpen(false);
   }, [location.pathname]);
 
-  const navItems = [
-    { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
-    { title: 'Tenants', icon: Users, path: '/tenants' },
-    { title: 'Invoices', icon: ReceiptIndianRupee, path: '/invoices' },
-    { title: 'Reports', icon: FileText, path: '/reports' },
-    { title: 'Companies', icon: Building2, path: '/companies' },
-    { title: 'Settings', icon: Settings, path: '/settings' },
-  ];
+  const pageTitle = PAGE_TITLES[location.pathname]
+    || (location.pathname.startsWith('/tenants') ? 'Tenants' : location.pathname.replace('/', '').replace(/-/g, ' ') || 'Overview');
 
   return (
-    <div className="flex h-screen bg-bg-light overflow-hidden flex-col">
-      <Toaster position="top-right" />
-      {/* System Warning Banner */}
+    <div style={{ display: 'flex', height: '100vh', background: '#F5F7FA', overflow: 'hidden', flexDirection: 'column' }}>
+      <Toaster position="top-right" toastOptions={{
+        style: { fontFamily: 'system-ui,sans-serif', fontSize: 13, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }
+      }}/>
+
+      {/* ── Demo Banner ── */}
       {dbStatus?.isDemo && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 flex items-center justify-center gap-3 text-[10px] md:text-[11px] text-amber-800 font-medium">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-            </span>
-            <span className="hidden xs:inline">DEMO MODE ACTIVE</span>
-          </div>
-          <span className="opacity-40 hidden xs:inline">|</span>
-          <p className="truncate">MongoDB Atlas connection failed. Check whitelist.</p>
-          <a 
-            href="https://cloud.mongodb.com" 
-            target="_blank" 
-            rel="noreferrer"
-            className="underline hover:text-amber-950 ml-1 shrink-0"
-          >
-            Atlas →
-          </a>
+        <div style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '6px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 11, color: '#92400e', fontWeight: 600, flexShrink: 0 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pulse 1.5s infinite' }}/>
+          DEMO MODE — MongoDB not connected.
+          <a href="https://cloud.mongodb.com" target="_blank" rel="noreferrer" style={{ color: '#b45309', textDecoration: 'underline' }}>Configure Atlas →</a>
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Sidebar Overlay for Mobile */}
-        <AnimatePresence>
-          {isSidebarOpen && window.innerWidth <= 1024 && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 bg-black/50 z-[40] lg:hidden"
-            />
-          )}
-        </AnimatePresence>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-        {/* Sidebar */}
-        <motion.aside 
-          initial={false}
-          animate={{ 
-            width: isSidebarOpen ? (window.innerWidth <= 1024 ? 260 : 240) : (window.innerWidth <= 1024 ? 0 : 72),
-            x: isSidebarOpen || window.innerWidth > 1024 ? 0 : -260
-          }}
-          className={cn(
-            "bg-sidebar text-white flex flex-col transition-all duration-300 z-50 overflow-hidden shrink-0",
-            window.innerWidth <= 1024 ? "fixed inset-y-0 left-0" : "relative"
-          )}
-        >
-          <div className="p-6 pb-2 flex items-center justify-between">
-            <div className="text-xl font-extrabold text-primary tracking-tighter">
-              {(isSidebarOpen || window.innerWidth <= 1024) ? 'NEOTERIC' : 'N'}
-            </div>
-            {window.innerWidth <= 1024 && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-white/50 hover:text-white">
-                <X size={20} />
-              </button>
-            )}
-          </div>
+        {/* ── Sidebar ── */}
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          isMobile={isMobile}
+        />
 
-          <nav className="flex-1 mt-6">
-            {navItems.map((item) => (
-              <Link 
-                key={item.path} 
-                to={item.path}
-                className={cn(
-                  "nav-item group relative flex items-center gap-3 px-6 py-3",
-                  location.pathname === item.path && "nav-item-active"
-                )}
+        {/* ── Main ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* ── Topbar ── */}
+          <header style={{
+            height:       58,
+            background:   '#ffffff',
+            borderBottom: '1px solid #f0f2f5',
+            display:      'flex',
+            alignItems:   'center',
+            justifyContent: 'space-between',
+            padding:      '0 20px',
+            flexShrink:   0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* Hamburger */}
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 7, borderRadius: 8, display: 'flex', color: '#9ba8b5', transition: 'background 0.15s' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f5f7fa'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
               >
-                <item.icon size={18} className="shrink-0" />
-                {(isSidebarOpen || window.innerWidth <= 1024) && (
-                  <span className="font-medium whitespace-nowrap">{item.title}</span>
-                )}
-              </Link>
-            ))}
-          </nav>
-
-          {(isSidebarOpen || window.innerWidth <= 1024) && (
-            <div className="p-6 border-t border-white/5 opacity-50 text-[10px] tracking-wider">
-              {isSidebarOpen ? 'v2.4.0 RELEASE' : 'V2'}
-            </div>
-          )}
-        </motion.aside>
-
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden w-full">
-          {/* Topbar */}
-          <header className="h-14 bg-white border-b border-border-card flex items-center justify-between px-4 md:px-6 shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.03)] w-full">
-            <div className="flex items-center gap-2 md:gap-4 overflow-hidden">
-              <button 
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-2 hover:bg-slate-100 rounded-md transition-colors text-slate-500 shrink-0"
-              >
-                <Menu size={20} />
+                <Menu size={19} />
               </button>
-              <div className="flex items-center text-sm overflow-hidden truncate">
-                <span className="text-slate-400 hidden xs:inline">Dashboard / </span>
-                <span className="text-text-main font-bold capitalize ml-1 truncate">
-                  {location.pathname === '/' ? 'Overview' : location.pathname.substring(1)}
-                </span>
+
+              {/* Breadcrumb */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                <span style={{ color: '#9ba8b5', fontWeight: 500 }}>Neoteric Properties</span>
+                <ChevronRight size={13} color="#d1d5db" />
+                <span style={{ color: '#1a1a2e', fontWeight: 700, textTransform: 'capitalize' }}>{pageTitle}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 md:gap-6 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 md:w-9 md:h-9 bg-slate-100 border border-border-card rounded-full flex items-center justify-center font-bold text-[10px] md:text-xs text-text-main shrink-0">
-                  AD
-                </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Team avatars */}
+              
+              
+
+              {/* Bell */}
+              <div style={{ position: 'relative' }}>
+                <button style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid #f0f2f5', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <Bell size={16} color="#9ba8b5" />
+                </button>
+                <div style={{ position: 'absolute', top: 7, right: 7, width: 7, height: 7, background: '#ef4444', borderRadius: '50%', border: '2px solid #fff' }} />
+              </div>
+
+              {/* Avatar */}
+              <div style={{ width: 34, height: 34, borderRadius: 9, background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', cursor: 'pointer', boxShadow: '0 2px 6px rgba(249,115,22,0.25)' }}>
+                AD
               </div>
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
+          {/* ── Content ── */}
+          <main style={{ flex: 1, overflowY: 'auto', background: '#F5F7FA' }}>
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/companies" element={<CompanyList />} />
-              <Route path="/tenants" element={<TenantList />} />
-              <Route path="/tenants/create" element={<TenantFormPage />} />
+              <Route path="/"                 element={<Dashboard />} />
+              <Route path="/companies"        element={<CompanyList />} />
+              <Route path="/tenants"          element={<TenantList />} />
+              <Route path="/tenants/create"   element={<TenantFormPage />} />
               <Route path="/tenants/edit/:id" element={<TenantFormPage />} />
-              <Route path="/tenants/:id" element={<TenantList />} />
-              <Route path="/invoices" element={<InvoiceList />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="*" element={<div className="p-20 text-center text-slate-400">Page under construction...</div>} />
+              <Route path="/tenants/:id"      element={<TenantList />} />
+              <Route path="/invoices"         element={<InvoiceList />} />
+              <Route path="/reports"          element={<Reports />} />
+              <Route path="*" element={
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: '#9ba8b5' }}>
+                  <Settings size={40} strokeWidth={1} />
+                  <p style={{ fontWeight: 600, fontSize: 14 }}>Page under construction</p>
+                </div>
+              } />
             </Routes>
           </main>
         </div>

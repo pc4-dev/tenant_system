@@ -1,403 +1,296 @@
 import { useEffect, useState } from 'react';
-import { 
-  Users, 
-  ReceiptIndianRupee, 
-  Home, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  AlertCircle,
-  Building2,
-  TrendingUp,
-  Clock,
-  Calendar,
-  Layers,
-  Activity,
-  CheckCircle2,
-  PieChart as PieChartIcon
+import {
+  Users, ReceiptIndianRupee, Building2, TrendingUp, Clock,
+  Calendar, Activity, CheckCircle2, AlertCircle, RefreshCw,
+  IndianRupee, ArrowUpRight, ArrowDownRight, Home, FileText
 } from 'lucide-react';
 import axios from 'axios';
 import { type Tenant, type Invoice } from '../src/types';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Cell, 
-  PieChart, 
-  Pie,
-  LineChart,
-  Line,
-  AreaChart,
-  Area
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
-import { cn } from '@/lib/utils';
+
+// ── Shared card style ────────────────────────────────────────────────────────
+const S = {
+  card: {
+    background: '#fff',
+    borderRadius: 16,
+    border: '1px solid #e8edf4',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+  } as React.CSSProperties,
+};
 
 export default function Dashboard() {
-  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenants,  setTenants]  = useState<Tenant[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setError(null);
-        const [tenantsRes, invoicesRes] = await Promise.all([
-          axios.get('/api/tenants'),
-          axios.get('/api/invoices')
-        ]);
-        setTenants(Array.isArray(tenantsRes.data) ? tenantsRes.data : []);
-        setInvoices(Array.isArray(invoicesRes.data) ? invoicesRes.data : []);
-      } catch (err: any) {
-        console.error('Error fetching dashboard data:', err);
-        setError(err.response?.data?.error || err.message || 'Network connection failed');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const load = async () => {
+    try {
+      setError(null); setLoading(true);
+      const [tR, iR] = await Promise.all([
+        axios.get('/api/tenants'),
+        axios.get('/api/invoices'),
+      ]);
+      setTenants(Array.isArray(tR.data) ? tR.data : []);
+      setInvoices(Array.isArray(iR.data) ? iR.data : []);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Connection failed');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
 
-  const totalRevenue = tenants.reduce((acc, t) => acc + (t.currentRent || 0), 0);
-  const totalOutstanding = invoices.reduce((acc, inv) => acc + (inv.balanceAmount || inv.balance || 0), 0);
-  
-  const now = new Date();
-  const expiringSoon = tenants.filter(t => {
+  // ── Computed values ──────────────────────────────────────────────────────
+  const totalRevenue  = tenants.reduce((a, t) => a + (t.currentRent || 0), 0);
+  const totalDues     = invoices.reduce((a, i) => a + (i.balanceAmount || i.balance || 0), 0);
+  const collected     = Math.max(totalRevenue - totalDues, totalRevenue * 0.8);
+  const now           = new Date();
+  const expiring      = tenants.filter(t => {
     if (!t.leaseEnd) return false;
-    const expiry = new Date(t.leaseEnd);
-    const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays > 0 && diffDays <= 30;
+    const d = Math.ceil((new Date(t.leaseEnd).getTime() - now.getTime()) / 86400000);
+    return d > 0 && d <= 30;
   }).length;
-
-  const paymentStatusData = [
-    { name: 'Paid', value: invoices.filter(i => i.paymentStatus === 'Paid').length, color: '#10b981' },
+  const paidCount   = invoices.filter(i => i.paymentStatus === 'Paid').length;
+  const paidPct     = Math.round((paidCount / (invoices.length || 1)) * 100);
+  const pieData     = [
+    { name: 'Paid',    value: paidCount, color: '#10b981' },
     { name: 'Partial', value: invoices.filter(i => i.paymentStatus === 'Partial').length, color: '#f59e0b' },
     { name: 'Pending', value: invoices.filter(i => i.paymentStatus === 'Pending').length, color: '#ef4444' },
   ].filter(d => d.value > 0);
 
-  // Growth analytics (mock for trend)
+  const areaData = invoices.slice(-8).map((inv, i) => ({
+    name: `${i + 1}`,
+    billed:    inv.totalInvoice || 0,
+    recovered: (inv.receivedAmount || inv.received || 0) + (inv.tdsAmount || 0),
+  }));
+
   const stats = [
-    { 
-      title: 'Active Tenants', 
-      value: tenants.length.toString(), 
-      icon: Users, 
-      color: 'emerald',
-      trend: '+12%',
-      description: 'Total leased units'
-    },
-    { 
-      title: 'Rent Collected', 
-      value: `₹${(totalRevenue - totalOutstanding > 0 ? totalRevenue - totalOutstanding : totalRevenue * 0.8).toLocaleString()}`, 
-      icon: TrendingUp, 
-      color: 'blue',
-      trend: '+8.4%',
-      description: 'Current month recovery'
-    },
-    { 
-      title: 'Monthly Revenue', 
-      value: `₹${totalRevenue.toLocaleString()}`, 
-      icon: ReceiptIndianRupee, 
-      color: 'indigo',
-      trend: '+2.1%',
-      description: 'Gross billing value'
-    },
-    { 
-      title: 'Pending Dues', 
-      value: `₹${totalOutstanding.toLocaleString()}`, 
-      icon: Clock, 
-      color: 'rose',
-      trend: '-4.2%',
-      description: 'Total accounts receivable'
-    },
-    { 
-      title: 'Expiring Leases', 
-      value: expiringSoon.toString(), 
-      icon: Calendar, 
-      color: 'amber',
-      trend: 'Action Reqd',
-      description: 'Expiring in 30 days'
-    },
-    { 
-      title: 'Portfolio Size', 
-      value: new Set(tenants.map(t => t.property)).size.toString(), 
-      icon: Building2, 
-      color: 'slate',
-      trend: 'Stable',
-      description: 'Active properties'
-    },
+    { label: 'Active Tenants',   value: tenants.length,         fmt: (v: any) => v,                        color: '#f97316', bg: '#fff7ed', icon: Users,          trend: '+12%', up: true  },
+    { label: 'Monthly Revenue',  value: totalRevenue,           fmt: (v: any) => `₹${v.toLocaleString()}`, color: '#10b981', bg: '#f0fdf4', icon: IndianRupee,    trend: '+8%',  up: true  },
+    { label: 'Rent Collected',   value: Math.round(collected),  fmt: (v: any) => `₹${v.toLocaleString()}`, color: '#3b82f6', bg: '#eff6ff', icon: TrendingUp,     trend: '+5%',  up: true  },
+    { label: 'Pending Dues',     value: Math.round(totalDues),  fmt: (v: any) => `₹${v.toLocaleString()}`, color: '#ef4444', bg: '#fff1f2', icon: Clock,          trend: '-4%',  up: false },
+    { label: 'Expiring Leases',  value: expiring,               fmt: (v: any) => v,                        color: '#f59e0b', bg: '#fffbeb', icon: Calendar,       trend: expiring > 0 ? 'Action!' : 'Clear', up: expiring === 0 },
+    { label: 'Properties',       value: new Set(tenants.map(t => t.property)).size, fmt: (v: any) => v,   color: '#64748b', bg: '#f8fafc', icon: Building2,      trend: 'Stable', up: true  },
   ];
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[80vh] space-y-4">
-        <Activity className="w-12 h-12 text-primary animate-pulse" />
-        <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Hydrating Dashboard...</p>
-      </div>
-    );
-  }
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '80vh', gap: 12 }}>
+      <Activity size={36} color="#f97316" style={{ animation: 'pulse 1.5s infinite' }} />
+      <p style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Loading Dashboard…</p>
+    </div>
+  );
 
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-6 text-center space-y-4">
-        <AlertCircle className="w-16 h-16 text-rose-500" />
-        <div className="max-w-md">
-          <h2 className="text-2xl font-black text-slate-800 tracking-tight">System Outage</h2>
-          <p className="mt-2 text-slate-500 text-sm font-medium">{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-8 bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold hover:bg-black transition-all shadow-xl"
-          >
-            Reconnect to Engine
-          </button>
-        </div>
+  // ── Error ────────────────────────────────────────────────────────────────
+  if (error) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16, padding: 24, textAlign: 'center' }}>
+      <AlertCircle size={48} color="#ef4444" strokeWidth={1.5} />
+      <div>
+        <p style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Connection Error</p>
+        <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{error}</p>
       </div>
-    );
-  }
+      <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: '#f97316', color: '#fff', borderRadius: 12, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(249,115,22,0.3)', fontFamily: 'inherit' }}>
+        <RefreshCw size={14} /> Retry
+      </button>
+    </div>
+  );
 
+  // ── Main render ──────────────────────────────────────────────────────────
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-8 pt-0 md:pt-0 lg:pt-0 w-full space-y-10 pb-12">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
+
+      {/* ── Page Header ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 className="text-4xl font-black text-slate-800 tracking-tighter">Dashboard overview</h1>
-          <p className="text-slate-400 font-medium mt-1">Strategic overview of your real estate empire</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.4px', margin: 0 }}>Dashboard Overview</h1>
+          <p style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500, marginTop: 4 }}>
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex -space-x-3">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="w-10 h-10 rounded-full border-4 border-white bg-slate-100 flex items-center justify-center shadow-sm">
-                <Users size={14} className="text-slate-400" />
-              </div>
-            ))}
-            <div className="w-10 h-10 rounded-full border-4 border-white bg-emerald-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
-              +{tenants.length}
-            </div>
-          </div>
-          <button className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-primary transition-colors focus:ring-4 ring-primary/10">
-            <Activity size={20} />
-          </button>
-        </div>
+        <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', background: '#fff', border: '1.5px solid #e8edf4', borderRadius: 10, fontSize: 12, fontWeight: 600, color: '#64748b', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <RefreshCw size={13} /> Refresh
+        </button>
       </div>
 
-      {/* Hero Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-5">
-        {stats.map((stat, i) => (
-          <DashboardCard key={i} {...stat} />
+      {/* ── Stat Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 22 }}>
+        {stats.map((st, i) => (
+          <div key={i} style={{ ...S.card, borderLeft: `3px solid ${st.color}`, borderRadius: '0 14px 14px 0', padding: '14px 16px', transition: 'all 0.2s', cursor: 'default' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(0,0,0,0.08)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'; }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 9, background: st.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <st.icon size={16} color={st.color} />
+              </div>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 5, background: st.up ? '#f0fdf4' : '#fff1f2', color: st.up ? '#15803d' : '#be123c', display: 'flex', alignItems: 'center', gap: 2 }}>
+                {st.up ? <ArrowUpRight size={9} /> : <ArrowDownRight size={9} />}{st.trend}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{st.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px', marginTop: 2 }}>{st.fmt(st.value)}</div>
+          </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Main Chart */}
-        <div className="lg:col-span-8 bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-10">
+      {/* ── Charts Row ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 16, marginBottom: 16 }}>
+
+        {/* Area Chart */}
+        <div style={{ ...S.card, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
             <div>
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">Financial Velocity</h3>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Monthly Billing vs Recovery</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Financial Velocity</p>
+              <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Monthly Billing vs Recovery</p>
             </div>
-            <div className="flex gap-2">
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 px-3 py-1.5 bg-slate-50 rounded-full">
-                <div className="w-2 h-2 rounded-full bg-indigo-500" /> Billed
-              </span>
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 px-3 py-1.5 bg-slate-50 rounded-full">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" /> Recovered
-              </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[{ c: '#f97316', l: 'Billed' }, { c: '#10b981', l: 'Recovered' }].map(x => (
+                <span key={x.l} style={{ fontSize: 10, fontWeight: 600, color: '#64748b', background: '#f8fafc', padding: '4px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: x.c, display: 'inline-block' }} />{x.l}
+                </span>
+              ))}
             </div>
           </div>
-          <div className="h-[350px] w-full">
+          <div style={{ height: 240 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={invoices.slice(-6).map(inv => ({
-                name: inv.billDate,
-                billed: inv.totalInvoice,
-                recovered: (inv.receivedAmount || inv.received || 0) + (inv.tdsAmount || 0)
-              }))}>
+              <AreaChart data={areaData} margin={{ left: -20 }}>
                 <defs>
-                   <linearGradient id="colorBilled" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                   </linearGradient>
-                   <linearGradient id="colorRecovered" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                   </linearGradient>
+                  <linearGradient id="gB" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.12} />
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gR" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.12} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94A3B8' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94A3B8' }} />
-                <Tooltip 
-                   contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
-                />
-                <Area type="monotone" dataKey="billed" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorBilled)" />
-                <Area type="monotone" dataKey="recovered" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorRecovered)" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }} dy={6} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontSize: 12 }} />
+                <Area type="monotone" dataKey="billed"    stroke="#f97316" strokeWidth={2.5} fillOpacity={1} fill="url(#gB)" />
+                <Area type="monotone" dataKey="recovered" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#gR)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Status Breakdown */}
-        <div className="lg:col-span-4 bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm flex flex-col items-center">
-            <h3 className="text-xl font-black text-slate-800 tracking-tight self-start mb-2">Collection Health</h3>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest self-start mb-8">Payment status distribution</p>
-            
-            <div className="h-[250px] w-full flex items-center justify-center relative">
-               {paymentStatusData.length > 0 ? (
-                 <>
-                   <ResponsiveContainer width="100%" height="100%">
-                     <PieChart>
-                       <Pie
-                        data={paymentStatusData}
-                        innerRadius={80}
-                        outerRadius={100}
-                        paddingAngle={5}
-                        dataKey="value"
-                       >
-                         {paymentStatusData.map((entry, index) => (
-                           <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
-                         ))}
-                       </Pie>
-                       <Tooltip />
-                     </PieChart>
-                   </ResponsiveContainer>
-                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <p className="text-3xl font-black text-slate-800">
-                        {Math.round((invoices.filter(i => i.paymentStatus === 'Paid').length / (invoices.length || 1)) * 100)}%
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Efficiency</p>
-                   </div>
-                 </>
-               ) : (
-                 <div className="text-slate-300 font-bold italic">No data available</div>
-               )}
-            </div>
-
-            <div className="w-full space-y-3 mt-4">
-              {paymentStatusData.map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-xs font-bold text-slate-600">{item.name}</span>
-                  </div>
-                  <span className="text-xs font-black text-slate-800">{item.value} Invoices</span>
+        {/* Donut Chart */}
+        <div style={{ ...S.card, padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ alignSelf: 'stretch', marginBottom: 4 }}>
+            <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Collection Health</p>
+            <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Payment distribution</p>
+          </div>
+          <div style={{ width: 140, height: 140, position: 'relative', margin: '12px 0' }}>
+            {pieData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} innerRadius={48} outerRadius={62} paddingAngle={4} dataKey="value" strokeWidth={0}>
+                      {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{paidPct}%</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>Paid</span>
                 </div>
-              ))}
-            </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Activity */}
-        <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-           <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">Recent Onboarding</h3>
-              <button className="text-xs font-bold text-primary px-4 py-2 bg-primary/5 rounded-xl hover:bg-primary/10 transition-colors">See Ledger</button>
-           </div>
-           <div className="space-y-4">
-             {tenants.slice(-5).reverse().map((t, i) => (
-               <div key={i} className="flex items-center justify-between p-4 rounded-[24px] border border-transparent hover:border-slate-100 hover:bg-slate-50 transition-all group">
-                 <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center font-black text-slate-400 group-hover:bg-primary group-hover:text-white transition-colors">
-                      {t.name[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm font-black text-slate-800">{t.name}</p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.property}</p>
-                    </div>
-                 </div>
-                 <div className="text-right">
-                    <p className="text-sm font-black text-slate-800">₹{t.currentRent.toLocaleString()}</p>
-                    <div className="flex items-center justify-end gap-1 mt-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">Active</span>
-                    </div>
-                 </div>
-               </div>
-             ))}
-           </div>
-        </div>
-
-        {/* Critical Alerts */}
-        <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-           <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">Risk Signals</h3>
-              <div className="px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                Priority
+              </>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', fontSize: 13 }}>No data</div>
+            )}
+          </div>
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {pieData.map((d, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', background: '#f8fafc', borderRadius: 9 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>{d.name}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>{d.value}</span>
               </div>
-           </div>
-           <div className="space-y-6">
-             {invoices.filter(inv => inv.paymentStatus === 'Pending').slice(0, 3).map((inv, i) => (
-               <div key={i} className="flex gap-5">
-                  <div className="flex flex-col items-center">
-                    <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center shadow-inner">
-                       <Clock size={20} />
-                    </div>
-                    {i !== 2 && <div className="w-0.5 h-full bg-slate-50 my-2" />}
-                  </div>
-                  <div className="flex-1 pb-4">
-                    <div className="flex justify-between">
-                       <p className="text-sm font-black text-slate-800">Pending Invoice #{inv.invoiceNo}</p>
-                       <span className="text-xs font-black text-rose-600">₹{inv.balanceAmount || inv.balance}</span>
-                    </div>
-                    <p className="text-xs font-medium text-slate-400 mt-1">Bill for {inv.partyName} is overdue. Escalation recommended.</p>
-                    <div className="flex gap-3 mt-3">
-                       <button className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 transition-colors">Send Reminder</button>
-                       <button className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-emerald-600 transition-colors">Recv. Payment</button>
-                    </div>
-                  </div>
-               </div>
-             ))}
-             {expiringSoon > 0 && (
-                <div className="flex gap-5">
-                   <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center shadow-inner shrink-0">
-                      <Calendar size={20} />
-                   </div>
-                   <div>
-                      <p className="text-sm font-black text-slate-800">Lease Expiry Signals</p>
-                      <p className="text-xs font-medium text-slate-400 mt-1">{expiringSoon} agreements are ending this month. Renewals needed.</p>
-                   </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Bottom Row ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+        {/* Recent Tenants */}
+        <div style={{ ...S.card, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Recent Tenants</p>
+            <a href="/tenants" style={{ fontSize: 12, fontWeight: 600, color: '#f97316', background: 'rgba(249,115,22,0.1)', padding: '4px 12px', borderRadius: 8, textDecoration: 'none' }}>View All</a>
+          </div>
+          {tenants.slice(-5).reverse().map((t, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 10px', borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f8fafc'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(249,115,22,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#f97316', flexShrink: 0 }}>
+                  {t.name[0].toUpperCase()}
                 </div>
-             )}
-           </div>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', margin: 0 }}>{t.name}</p>
+                  <p style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>{t.property}</p>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', margin: 0 }}>₹{t.currentRent.toLocaleString()}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981' }} />
+                  <span style={{ fontSize: 9, fontWeight: 600, color: '#15803d' }}>Active</span>
+                </div>
+              </div>
+            </div>
+          ))}
+          {tenants.length === 0 && <p style={{ textAlign: 'center', color: '#cbd5e1', fontSize: 13, padding: '20px 0' }}>No tenants yet</p>}
+        </div>
+
+        {/* Risk Signals */}
+        <div style={{ ...S.card, padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Risk Signals</p>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#be123c', background: '#fff1f2', padding: '3px 10px', borderRadius: 6 }}>Priority</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {invoices.filter(i => i.paymentStatus !== 'Paid').slice(0, 3).map((inv, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, padding: '11px 12px', background: inv.paymentStatus === 'Pending' ? '#fff8f8' : '#fffbeb', borderRadius: 11, border: `1px solid ${inv.paymentStatus === 'Pending' ? '#fecdd3' : '#fde68a'}` }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: inv.paymentStatus === 'Pending' ? '#fff1f2' : '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Clock size={14} color={inv.paymentStatus === 'Pending' ? '#ef4444' : '#f59e0b'} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', margin: 0 }}>#{inv.invoiceNo}</p>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: inv.paymentStatus === 'Pending' ? '#ef4444' : '#f59e0b' }}>₹{(inv.balanceAmount || inv.balance || 0).toLocaleString()}</span>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{inv.partyName} — {inv.paymentStatus}</p>
+                </div>
+              </div>
+            ))}
+            {expiring > 0 && (
+              <div style={{ display: 'flex', gap: 10, padding: '11px 12px', background: '#f0f9ff', borderRadius: 11, border: '1px solid #bae6fd' }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Calendar size={14} color="#3b82f6" />
+                </div>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', margin: 0 }}>Lease Expiry Warning</p>
+                  <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{expiring} lease{expiring > 1 ? 's' : ''} expiring within 30 days</p>
+                </div>
+              </div>
+            )}
+            {invoices.filter(i => i.paymentStatus === 'Pending').length === 0 && expiring === 0 && (
+              <div style={{ textAlign: 'center', padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={32} color="#10b981" strokeWidth={1.5} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#10b981', margin: 0 }}>All clear — no risk signals</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
-function DashboardCard({ title, value, icon: Icon, color, trend, description }: any) {
-  const colors: any = {
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
-    rose: 'bg-rose-50 text-rose-600 border-rose-100',
-    amber: 'bg-amber-50 text-amber-600 border-amber-100',
-    slate: 'bg-slate-50 text-slate-600 border-slate-100',
-  };
-
-  const trendPositive = trend.includes('+');
-  const trendNegative = trend.includes('-');
-
-  return (
-    <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-xl hover:-translate-y-1 transition-all group">
-      <div className="flex justify-between items-start mb-6">
-        <div className={cn("p-4 rounded-2xl transition-transform group-hover:scale-110", colors[color])}>
-          <Icon size={20} />
-        </div>
-        <div className={cn(
-          "px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest",
-          trendPositive ? "bg-emerald-50 text-emerald-600" : 
-          trendNegative ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-500"
-        )}>
-          {trend}
-        </div>
-      </div>
-      <div>
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</h4>
-        <p className="text-2xl font-black text-slate-800 tracking-tighter mt-1">{value}</p>
-        <p className="text-[9px] font-bold text-slate-400 mt-1">{description}</p>
-      </div>
-    </div>
-  );
-}
-
