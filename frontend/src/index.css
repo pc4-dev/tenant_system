@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #f97316;
+  --color-primary-foreground: #ffffff;
+  --color-sidebar: #0f172a;
+  --color-bg-light: #f8fafc;
+  --color-text-main: #1e293b;
+  --color-border-card: #e2e8f0;
+}
+
+body {
+  @apply font-sans text-slate-800 bg-bg-light;
+}
+
+.table-th {
+  @apply px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100;
+}
+
+.table-td {
+  @apply px-6 py-4 text-sm text-slate-600 border-b border-border-card/50;
+}
+
+.badge-paid {
+  @apply bg-emerald-50 text-emerald-600 border border-emerald-100;
+}
+
+.badge-pending {
+  @apply bg-amber-50 text-amber-600 border border-amber-100;
+}
+
+.badge-partial {
+  @apply bg-blue-50 text-blue-600 border border-blue-100;
+}
+
+.card-saas {
+  @apply bg-white rounded-2xl border border-border-card shadow-[0_2px_4px_rgba(0,0,0,0.02)] overflow-hidden;
+}
+
+.form-input-saas {
+  @apply w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all shadow-sm;
+}
+
+.form-input-compact {
+  @apply w-full h-[48px] px-4 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary outline-none transition-all;
+}
+
+.nav-item {
+  @apply transition-all duration-200 hover:bg-white/5 hover:text-white text-white/50;
+}
+
+.nav-item-active {
+  @apply bg-primary/10 text-primary border-r-4 border-primary font-bold;
+}
+
+/* ── Nexora Stat Card (left-border accent) ── */
+.nexora-stat {
+  background: #fff;
+  border-radius: 0 14px 14px 0;
+  border: 1px solid #e8edf4;
+  padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: all 0.2s;
+}
+.nexora-stat:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+}
+
+/* ── Page title ── */
+.page-title  { font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.3px; }
+.page-sub    { font-size: 12px; color: #94a3b8; margin-top: 3px; font-weight: 500; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+
+/* ── Nexora primary button ── */
+.btn-nexora {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px; background: #f97316; color: #fff;
+  border-radius: 10px; font-size: 13px; font-weight: 700;
+  border: none; cursor: pointer; font-family: inherit;
+  transition: all 0.15s; box-shadow: 0 2px 8px rgba(249,115,22,0.25);
+}
+.btn-nexora:hover { background: #ea6c0f; box-shadow: 0 4px 14px rgba(249,115,22,0.4); transform: translateY(-1px); }
+.btn-nexora:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ── Ghost button ── */
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px; background: #fff; color: #475569;
+  border: 1.5px solid #e2e8f0; border-radius: 10px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: all 0.15s;
+}
+.btn-ghost:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+/* ── Nexora search bar ── */
+.nexora-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 14px; background: #f8fafc;
+  border: 1.5px solid #e8edf4; border-radius: 10px; transition: all 0.15s;
+}
+.nexora-search:focus-within { background: #fff; border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.08); }
+.nexora-search input { border: none; outline: none; font-size: 13px; color: #0f172a; background: transparent; flex: 1; font-family: inherit; }
+.nexora-search input::placeholder { color: #94a3b8; }

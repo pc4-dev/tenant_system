@@ -1,0 +1,37 @@
+import mongoose from 'mongoose';
+
+const tenantSchema = new mongoose.Schema({
+  code: { type: String, unique: true, sparse: true },
+  name: { type: String, required: true },
+  company: String,
+  property: String,
+  contactPerson: String,
+  mobile: String,
+  email: String,
+  leaseStart: String,
+  leaseEnd: String,
+  tenure: Number,
+  lockIn: Number,
+  noticePeriod: Number,
+  escalationPercent: Number,
+  nextEscalationDate: String,
+  securityDeposit: Number,
+  currentRent: { type: Number, default: 0 },
+  gstNo: String,
+  legalName: String,
+  billingAddress: String,
+  state: String,
+  pincode: String,
+  agreementStatus: { type: String, enum: ['Active', 'Expired', 'Pending'], default: 'Pending' },
+  agreementFileUrl: String,
+  agreementFileType: String,
+  rentFreePeriodDays: { type: Number, default: 0 },
+  alternateContactPerson: String,
+  rentalPurpose: String,
+  openingBalanceAmount: { type: Number, default: 0 },
+  openingBalanceType: { type: String, enum: ['Debit', 'Credit'], default: 'Debit' },
+  openingBalanceDate: { type: Date, default: Date.now },
+  openingBalanceNotes: String,
+}, { timestamps: true });
+
+export const Tenant = mongoose.model('Tenant', tenantSchema);
